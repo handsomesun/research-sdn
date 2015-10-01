@@ -33,10 +33,9 @@ import hashlib
 
 
 class SimpleSwitch13(app_manager.RyuApp):
-    OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
-    ip_to_mac = {'10.0.0.1':'00:00:00:00:00:01',
-                 '10.0.0.2':'00:00:00:00:00:02'}
+    ip_to_mac = {'10.0.0.1':'a0:36:9f:32:f0:18',
+                 '10.0.0.2':'a0:36:9f:3a:8c:d4'}
 
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch13, self).__init__(*args, **kwargs)
@@ -115,21 +114,16 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         if pkt_icmp:
             print("handling icmp packets")
-            if dpid == 1:
-                if in_port == 1:
+            if dpid == 6790874762836790034:
+                if in_port == 1 or in_port == 2:
                     self._add_linear_bipath(1, 2, msg, inet.IPPROTO_ICMP)
-                elif in_port == 2:
                     self._add_linear_bipath(2, 1, msg, inet.IPPROTO_ICMP)
-            elif dpid == 3:
-                if in_port == 1:
-                    self._add_linear_bipath(1, 2, msg, inet.IPPROTO_ICMP)
-                elif in_port == 2:
-                    self._add_linear_bipath(2, 1, msg, inet.IPPROTO_ICMP)
-            elif dpid == 2:
-                if in_port == 1:
-                    self._add_linear_bipath(1, 3, msg, inet.IPPROTO_ICMP)
-                elif in_port == 3:
-                    self._add_linear_bipath(3, 1, msg, inet.IPPROTO_ICMP)
+                elif in_port == 5 or in_port == 6:
+                    self._add_linear_bipath(5, 6, msg, inet.IPPROTO_ICMP)
+                    self._add_linear_bipath(6, 5, msg, inet.IPPROTO_ICMP)
+                elif in_port == 15 or in_port == 16:
+                    self._add_linear_bipath(15, 16, msg, inet.IPPROTO_ICMP)
+                    self._add_linear_bipath(16, 15, msg, inet.IPPROTO_ICMP)
             return
 
         #if pkt_ip and pkt_udp:
