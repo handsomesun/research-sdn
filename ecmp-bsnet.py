@@ -134,23 +134,23 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         if pkt_tcp:
             ftuple = (pkt_ip.src, pkt_tcp.src_port, pkt_ip.dst, pkt_tcp.dst_port, inet.IPPROTO_TCP)
-            if dpid == 3 or dpid == 4:
-                if in_port == 1:
-                    #self._add_linear_bipath(1, 2, msg, inet.IPPROTO_TCP)
-                    self._add_tcp_ecmp(1, [2], ftuple, msg)
-                elif in_port == 2:
-                    #self._add_linear_bipath(2, 1, msg, inet.IPPROTO_TCP)
-                    self._add_tcp_ecmp(2, [1], ftuple, msg)
-            elif dpid == 1:
-                if in_port == 1:
+            if dpid == 6790874762836790034:
+                if in_port == 5:
+                    self._add_tcp_ecmp(5, [6], ftuple, msg)
+                elif in_port == 6:
+                    self._add_tcp_ecmp(6, [5], ftuple, msg)
+                elif in_port == 9:
+                    self._add_tcp_ecmp(9, [10], ftuple, msg)
+                elif in_port == 10:
+                    self._add_tcp_ecmp(10, [9], ftuple, msg)
+                elif in_port == 16:
+                    self._add_tcp_ecmp(16, [14, 15], ftuple, msg)
+                elif in_port == 14 or in_port == 15:
+                    self._add_tcp_ecmp(in_port, [16], ftuple, msg)
+                elif in_port == 1:
                     self._add_tcp_ecmp(1, [2, 3], ftuple, msg)
-                else:
+                elif in_port == 2 or in_port == 3:
                     self._add_tcp_ecmp(in_port, [1], ftuple, msg)
-            elif dpid == 2:
-                if in_port == 3:
-                    self._add_tcp_ecmp(3, [1, 2], ftuple, msg)
-                else:
-                    self._add_tcp_ecmp(in_port, [3], ftuple, msg)
 
     def _handle_arp(self, datapath, port, pkt_ethernet, pkt_arp):
         if pkt_arp.opcode != arp.ARP_REQUEST:
