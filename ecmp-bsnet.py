@@ -72,6 +72,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         else:
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                     match=match, instructions=inst)
+
         datapath.send_msg(mod)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -134,15 +135,24 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         if pkt_tcp:
             ftuple = (pkt_ip.src, pkt_tcp.src_port, pkt_ip.dst, pkt_tcp.dst_port, inet.IPPROTO_TCP)
+            rftuple = self._get_reverse_ftuple(ftuple)
             if dpid == 6790874762836790034:
                 if in_port == 5:
-                    self._add_tcp_ecmp(5, [6], ftuple, msg)
+                    self._add_group_mod(self._hash_ftuple(ftuple), datapath, [[6], [6, 48]], [50, 50])
+                    self._add_group_mod(self._hash_ftuple(rftuple), datapath, [[5], [5, 48]], [50, 50])
+                    self._add_tcp_mirror(in_port, ftuple, msg)
                 elif in_port == 6:
-                    self._add_tcp_ecmp(6, [5], ftuple, msg)
+                    self._add_group_mod(self._hash_ftuple(ftuple), datapath, [[5], [5, 48]], [50, 50])
+                    self._add_group_mod(self._hash_ftuple(rftuple), datapath, [[6], [6, 48]], [50, 50])
+                    self._add_tcp_mirror(in_port, ftuple, msg)
                 elif in_port == 9:
-                    self._add_tcp_ecmp(9, [10], ftuple, msg)
+                    self._add_group_mod(self._hash_ftuple(ftuple), datapath, [[10], [10, 48]], [50, 50])
+                    self._add_group_mod(self._hash_ftuple(rftuple), datapath, [[9], [9, 48]], [50, 50])
+                    self._add_tcp_mirror(in_port, ftuple, msg)
                 elif in_port == 10:
-                    self._add_tcp_ecmp(10, [9], ftuple, msg)
+                    self._add_group_mod(self._hash_ftuple(ftuple), datapath, [[9], [9, 48]], [50, 50])
+                    self._add_group_mod(self._hash_ftuple(rftuple), datapath, [[10], [10, 48]], [50, 50])
+                    self._add_tcp_mirror(in_port, ftuple, msg)
                 elif in_port == 16:
                     self._add_tcp_ecmp(16, [14, 15], ftuple, msg)
                 elif in_port == 14 or in_port == 15:
@@ -173,7 +183,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         pkt.serialize()
-        self.logger.info("packet-out %s" % (pkt,))
+        #self.logger.info("packet-out %s" % (pkt,))
         data = pkt.data
         actions = [parser.OFPActionOutput(port=port)]
         out = parser.OFPPacketOut(datapath=datapath,
@@ -258,7 +268,44 @@ class SimpleSwitch13(app_manager.RyuApp):
         else:
             self.add_flow(datapath, 2, match, actions)
 
+    def _add_tcp_mirror(self, in_port, ftuple, msg):
+        datapath = msg.datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        print("Handling tcp packets, installing TCP mirror rule...")
+
+        actions = [parser.OFPActionGroup(group_id = self._hash_ftuple(ftuple))]
+        match = parser.OFPMatch(ipv4_src = ftuple[0], tcp_src = ftuple[1], ipv4_dst = ftuple[2], tcp_dst = ftuple[3], ip_proto=inet.IPPROTO_TCP, eth_type=0x0800)
+        if msg.buffer_id != ofproto.OFP_NO_BUFFER:
+            self.add_flow(datapath, 2, match, actions, msg.buffer_id)
+        else:
+            self.add_flow(datapath, 2, match, actions)
+
+        data = None
+        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+            data = msg.data
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                  in_port=in_port, actions=actions, data=data)
+        # Add return flow
+        rftuple = self._get_reverse_ftuple(ftuple)
+        actions = [parser.OFPActionGroup(group_id = self._hash_ftuple(rftuple))]
+        match = parser.OFPMatch(ipv4_src = rftuple[0], tcp_src = rftuple[1], ipv4_dst = rftuple[2], tcp_dst = rftuple[3], ip_proto=inet.IPPROTO_TCP, eth_type=0x0800)
+        if msg.buffer_id != ofproto.OFP_NO_BUFFER:
+            self.add_flow(datapath, 2, match, actions, msg.buffer_id)
+        else:
+            self.add_flow(datapath, 2, match, actions)
+
+    def _swap(self, l, left, right):
+        if (left < 0 or left >= len(l) or right < 0 or right >= len(l)):
+            return
+        temp = l[left]
+        l[left] = l[right]
+        l[right] = temp
+
     def _get_out_port(self, ftuple, out_port_list):
+        return out_port_list[self._hash_ftuple(ftuple) % len(out_port_list)]
+
+    def _hash_ftuple(self, ftuple):
         md5 = hashlib.md5()
         md5.update(str(ftuple[0]))
         md5.update(str(ftuple[1]))
@@ -267,4 +314,31 @@ class SimpleSwitch13(app_manager.RyuApp):
         md5.update(str(ftuple[4]))
         digest = md5.hexdigest()
         number = int(digest, 16)
-        return out_port_list[number % len(out_port_list)]
+        return number % 1000
+
+    def _add_group_mod(self, group_id, datapath, port_list, weight_list):
+        print str("GENERATING group_id: " + str(group_id))
+        ofp = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+
+        watch_port = ofproto_v1_3.OFPP_ANY
+        watch_group = ofproto_v1_3.OFPQ_ALL
+
+        buckets = []
+        for i in range(len(port_list)):
+            actions = []
+            for j in range(len(port_list[i])):
+                actions.append(ofp_parser.OFPActionOutput(port_list[i][j]))
+            #print str(actions)
+            buckets.append(ofp_parser.OFPBucket(weight_list[i], watch_port, watch_group, actions))
+
+        #print str(buckets)
+
+        req = ofp_parser.OFPGroupMod(
+            datapath, ofp.OFPFC_ADD,
+            ofp.OFPGT_SELECT, group_id, buckets)
+
+        datapath.send_msg(req)
+
+    def _get_reverse_ftuple(self, ftuple):
+        return (ftuple[2], ftuple[3], ftuple[0], ftuple[1], ftuple[4])
